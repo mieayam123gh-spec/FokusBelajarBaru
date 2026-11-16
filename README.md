@@ -9,8 +9,11 @@ Dibuat terbuka: adik tahu aturannya, dan izin diberikan secara manual di HP-nya.
 - **Live Screen**: pantau secara real-time aplikasi apa yang sedang dibuka anak,
   lengkap dengan riwayat 30 aplikasi terakhir. Tersedia di dua tempat:
   1. Tombol **"Live Screen: pantau aplikasi anak"** di aplikasi (HP orang tua).
-  2. **Dashboard web**: buka `http://IP-SERVER:5000` di browser HP orang tua,
-     masukkan token, dan pantauan tampil tiap 3 detik.
+  2. **Panel web orang tua**: buka `http://IP-SERVER:5000` di browser HP orang tua
+     — TIDAK perlu install APK di HP orang tua.
+- **Panel web orang tua** (semua dari browser, cukup isi token sekali):
+  mulai/berhenti sesi belajar, edit daftar aplikasi diblokir, Live Screen,
+  riwayat aplikasi, dan rekap belajar harian.
 - **Rekap sesi**: jumlah sesi dan total menit belajar hari ini.
 
 ## Struktur
@@ -51,10 +54,15 @@ Atau buka folder ini di Android Studio dan tekan Build > Build APK.
    Tekan **"Berhenti sesi"** untuk mengakhiri.
 
 ### HP orang tua
-1. Install APK (atau cukup pakai browser), isi URL server dan token yang sama.
-2. Tekan **"Live Screen: pantau aplikasi anak"** untuk melihat aplikasi yang
-   sedang dan baru saja dibuka anak. Data menyegarkan otomatis tiap 3 detik.
-3. Tekan **"Lihat rekap hari ini"** untuk statistik sesi belajar.
+1. Tidak perlu install APK. Buka browser ke `http://IP:5000`
+   (IP server HP yang menjalankan Termux, kedua HP dalam WiFi yang sama).
+2. Masukkan token (sama dengan FOKUS_TOKEN), tekan **Simpan**.
+3. Di panel web Anda bisa: mulai/berhenti sesi belajar, mengedit daftar
+   aplikasi yang diblokir, melihat **Live Screen** (aplikasi yang sedang dan
+   baru saja dibuka anak, otomatis menyegarkan tiap 3 detik), serta rekap
+   belajar harian.
+4. Kalau tetap ingin memakai aplikasi Android di HP ortu, install APK dan
+   tekan **"Live Screen: pantau aplikasi anak"** di dalamnya.
 
 ## Catatan teknis
 - Live Screen memakai `UsageStatsManager` di HP anak (izinkan "akses penggunaan"

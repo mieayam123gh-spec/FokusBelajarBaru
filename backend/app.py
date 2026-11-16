@@ -232,10 +232,11 @@ def live():
     recent = conn.execute(
         "SELECT device, package, ts FROM activity ORDER BY ts DESC, id DESC LIMIT 30"
     ).fetchall()
+    session_active = open_session(conn) is not None
     conn.close()
     return jsonify(
         now=now,
-        session_active=False,
+        session_active=session_active,
         devices=devices,
         recent=[dict(r) for r in recent],
     )
@@ -275,7 +276,7 @@ DASHBOARD_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FokusBelajar - Pantauan Live</title>
+<title>FokusBelajar - Panel Orang Tua</title>
 <style>
   body { font-family: sans-serif; background: #0f172a; color: #e2e8f0;
          margin: 0; padding: 16px; }
@@ -284,43 +285,77 @@ DASHBOARD_HTML = """<!doctype html>
   .card { background: #1e293b; border-radius: 12px; padding: 16px;
           margin-bottom: 16px; }
   .card h2 { font-size: 15px; margin: 0 0 8px; color: #7dd3fc; }
-  input, button { font-size: 15px; border-radius: 8px; padding: 10px;
-                  border: 1px solid #334155; background: #0f172a;
-                  color: #e2e8f0; }
-  button { background: #2563eb; border: none; font-weight: bold; }
+  input, textarea, button { font-size: 15px; border-radius: 8px;
+                  padding: 10px; border: 1px solid #334155;
+                  background: #0f172a; color: #e2e8f0; }
+  textarea { width: 100%; box-sizing: border-box; font-size: 14px; }
+  button { background: #2563eb; border: none; font-weight: bold;
+           margin: 4px 4px 0 0; }
+  button.stop { background: #dc2626; }
+  button.gray { background: #334155; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 999px;
+           font-size: 13px; font-weight: bold; }
+  .badge.on  { background: #14532d; color: #4ade80; }
+  .badge.off { background: #3f1d1d; color: #f87171; }
   .now { font-size: 17px; font-weight: bold; word-break: break-all; }
-  .off { color: #f87171; }
+  .dot { display: inline-block; width: 10px; height: 10px;
+         border-radius: 50%; margin-right: 6px; }
   .on  { color: #4ade80; }
-  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
-         margin-right: 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  td, th { padding: 6px 4px; text-align: left; border-bottom: 1px solid #334155; }
-  th { color: #94a3b8; }
+  .off { color: #f87171; }
   .err { color: #f87171; font-size: 13px; }
+  .ok  { color: #4ade80; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 4px; text-align: left;
+           border-bottom: 1px solid #334155; }
+  th { color: #94a3b8; }
+  .stats { font-size: 15px; }
+  .stats b { color: #7dd3fc; }
 </style>
 </head>
 <body>
-<h1>FokusBelajar - Pantauan Live</h1>
-<div class="sub">Lihat aplikasi apa yang sedang dibuka anak, diperbarui tiap 3 detik.</div>
+<h1>FokusBelajar - Panel Orang Tua</h1>
+<div class="sub">Semua kontrol dari browser. Data live diperbarui tiap 3 detik.</div>
 
 <div class="card">
-  <h2>Token server</h2>
-  <input id="token" type="password" placeholder="FOKUS_TOKEN">
+  <h2>1. Token server</h2>
+  <input id="token" type="password" placeholder="FOKUS_TOKEN" size="20">
   <button onclick="saveToken()">Simpan</button>
-  <div id="authErr" class="err"></div>
-</div>
-
-<div id="liveBox" class="card">
-  <h2>Sedang dibuka sekarang</h2>
-  <div id="liveNow" class="now">-</div>
+  <div id="authMsg" class="err"></div>
 </div>
 
 <div class="card">
-  <h2>30 aplikasi terakhir yang dibuka</h2>
+  <h2>2. Status sesi belajar</h2>
+  <div><span id="sesBadge" class="badge off">memuat...</span>
+       <span id="sesInfo" style="color:#94a3b8;font-size:13px"></span></div>
+  <button onclick="sesStart()">Mulai sesi</button>
+  <button class="stop" onclick="sesStop()">Berhenti sesi</button>
+</div>
+
+<div class="card">
+  <h2>3. Aplikasi yang diblokir saat sesi</h2>
+  <textarea id="blocked" rows="3"
+    placeholder="com.google.android.youtube, com.mobile.legends"></textarea>
+  <button onclick="saveRules()">Simpan daftar blokir</button>
+  <div id="rulesMsg"></div>
+</div>
+
+<div class="card">
+  <h2>4. Live Screen - sedang dibuka sekarang</h2>
+  <div id="liveNow" class="now"><span class="dot off"></span>-</div>
+  <div id="liveInfo" style="color:#94a3b8;font-size:13px"></div>
+</div>
+
+<div class="card">
+  <h2>5. Riwayat aplikasi yang dibuka anak</h2>
   <table>
     <tr><th>Waktu</th><th>Device</th><th>Aplikasi</th></tr>
     <tbody id="recentBody"><tr><td colspan="3">-</td></tr></tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>6. Rekap belajar hari ini</h2>
+  <div id="statsBox" class="stats">-</div>
 </div>
 
 <script>
@@ -330,45 +365,123 @@ tokenEl.value = localStorage.getItem(KEY) || '';
 
 function saveToken() {
   localStorage.setItem(KEY, tokenEl.value.trim());
-  refresh();
+  refresh(true);
 }
 
 function fmt(ts) {
   return new Date(ts * 1000).toLocaleTimeString('id-ID');
 }
 
-async function refresh() {
+async function api(path, opts) {
   const token = localStorage.getItem(KEY) || '';
-  if (!token) { document.getElementById('authErr').textContent = 'Isi token dulu.'; return; }
+  const r = await fetch(path, Object.assign({}, opts || {},
+    { headers: Object.assign({ 'X-Token': token }, (opts && opts.headers) || {}) }));
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) {
+    document.getElementById('authMsg').textContent =
+      'Token salah atau belum diisi.';
+    throw new Error('unauthorized');
+  }
+  return { status: r.status, body: j };
+}
+
+async function sesStart() {
   try {
-    const r = await fetch('/api/live', { headers: { 'X-Token': token } });
-    if (r.status === 401) {
-      document.getElementById('authErr').textContent = 'Token salah.';
+    await api('/api/session/start', { method: 'POST' });
+    refresh(true);
+  } catch (e) {}
+}
+
+async function sesStop() {
+  try {
+    await api('/api/session/stop', { method: 'POST' });
+    refresh(true);
+  } catch (e) {}
+}
+
+async function saveRules() {
+  const msg = document.getElementById('rulesMsg');
+  const list = document.getElementById('blocked').value
+    .split(',').map(s => s.trim()).filter(s => s.length > 0);
+  try {
+    const r = await api('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blocked: list })
+    });
+    if (r.status === 400) {
+      msg.className = 'err'; msg.textContent = 'Format daftar tidak valid.';
       return;
     }
-    document.getElementById('authErr').textContent = '';
-    const j = await r.json();
-    const liveNow = document.getElementById('liveNow');
-    const dev = j.devices && j.devices[0];
-    if (dev && dev.live && dev.current_app) {
-      liveNow.innerHTML = '<span class="dot on"></span>' + dev.current_app +
-        ' <small>(update ' + dev.seconds_ago + ' dtk lalu)</small>';
-    } else if (dev) {
-      liveNow.innerHTML = '<span class="dot off"></span>Tidak ada laporan baru (' +
-        Math.round(dev.seconds_ago / 60) + ' mnt lalu: ' + (dev.last_app || '-') + ')';
-    } else {
-      liveNow.innerHTML = '<span class="dot off"></span>Belum ada data dari HP anak.';
-    }
-    const tb = document.getElementById('recentBody');
-    tb.innerHTML = (j.recent || []).map(e =>
-      '<tr><td>' + fmt(e.ts) + '</td><td>' + e.device + '</td><td>' + e.package + '</td></tr>'
-    ).join('') || '<tr><td colspan="3">Belum ada data.</td></tr>';
+    msg.className = 'ok';
+    msg.textContent = 'Daftar blokir tersimpan (' + list.length + ' aplikasi).';
   } catch (e) {
-    document.getElementById('authErr').textContent = 'Gagal terhubung: ' + e.message;
+    msg.className = 'err'; msg.textContent = 'Gagal: ' + e.message;
   }
 }
 
-refresh();
+async function refresh(force) {
+  const token = localStorage.getItem(KEY) || '';
+  if (!token) {
+    document.getElementById('authMsg').textContent = 'Isi token dulu.';
+    return;
+  }
+  try {
+    document.getElementById('authMsg').textContent = '';
+
+    const rules = await api('/api/rules');
+    const badge = document.getElementById('sesBadge');
+    if (rules.body.session_active) {
+      badge.className = 'badge on'; badge.textContent = 'Sesi AKTIF';
+      document.getElementById('sesInfo').textContent =
+        'anak sedang dalam sesi belajar';
+    } else {
+      badge.className = 'badge off'; badge.textContent = 'Sesi tidak berjalan';
+      document.getElementById('sesInfo').textContent =
+        'tekan "Mulai sesi" di sini, lalu anak tinggal buka aplikasinya';
+    }
+    if (!document.getElementById('blocked').dataset.dirty) {
+      document.getElementById('blocked').value =
+        (rules.body.blocked || []).join(', ');
+    }
+
+    const live = await api('/api/live');
+    const liveNow = document.getElementById('liveNow');
+    const liveInfo = document.getElementById('liveInfo');
+    const dev = (live.body.devices || [])[0];
+    if (dev && dev.live && dev.current_app) {
+      liveNow.innerHTML = '<span class="dot on"></span>' + dev.current_app;
+      liveInfo.textContent = 'update ' + dev.seconds_ago + ' dtk lalu';
+    } else if (dev) {
+      liveNow.innerHTML = '<span class="dot off"></span>Tidak ada laporan baru';
+      liveInfo.textContent = 'laporan terakhir ' +
+        Math.round(dev.seconds_ago / 60) + ' mnt lalu: ' + (dev.last_app || '-');
+    } else {
+      liveNow.innerHTML = '<span class="dot off"></span>Belum ada data dari HP anak';
+      liveInfo.textContent = 'pastikan APK sudah terpasang & sesi berjalan di HP anak';
+    }
+    const tb = document.getElementById('recentBody');
+    tb.innerHTML = (live.body.recent || []).map(e =>
+      '<tr><td>' + fmt(e.ts) + '</td><td>' + e.device + '</td><td>' +
+      e.package + '</td></tr>'
+    ).join('') || '<tr><td colspan="3">Belum ada data.</td></tr>';
+
+    const st = await api('/api/sessions');
+    document.getElementById('statsBox').innerHTML =
+      '<b>' + st.body.today_sessions + '</b> sesi hari ini, total <b>' +
+      st.body.today_minutes + '</b> menit.';
+  } catch (e) {}
+}
+
+// tandai textarea agar tidak ditimpa ulang saat pengguna sedang mengetik
+document.getElementById('blocked').addEventListener('input', function () {
+  this.dataset.dirty = '1';
+});
+document.getElementById('blocked').addEventListener('change', function () {
+  this.dataset.dirty = '';
+});
+
+refresh(true);
 setInterval(refresh, 3000);
 </script>
 </body>
